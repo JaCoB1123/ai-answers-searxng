@@ -17,6 +17,11 @@ TOKEN_EXPIRY_SEC = 3600
 STREAM_CHUNK_SIZE = 128
 STREAM_TIMEOUT_SEC = 60
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.strip().lower() in ('1', 'true', 'yes', 'on')
 def _get_streaming_connection(url: str):
     parsed = urlparse(url)
     host = parsed.hostname
@@ -438,6 +443,43 @@ class SXNGPlugin(Plugin):
 
 
 
+    def _ollama_unload_model(self) -> None:
+        """
+        Force-unload an Ollama model after a response by calling the native /api/chat endpoint:
+          {"model": "...", "messages": [], "keep_alive": 0}
+        """
+        try:
+            if self.provider != 'ollama':
+                return
+            if not getattr(self, 'ollama_unload_after', False):
+                return
+            unload_url = (getattr(self, 'ollama_unload_url', '') or '').strip()
+            if not unload_url:
+                return
+
+            conn = None
+            try:
+                conn, path = _get_streaming_connection(unload_url)
+                payload = json.dumps({
+                    "model": self.model,
+                    "messages": [],
+                    "keep_alive": 0
+                })
+                headers = {"Content-Type": "application/json"}
+                # Optional: if Ollama is behind auth, reuse LLM_KEY
+                if self.api_key and self.api_key not in ('none', 'ollama'):
+                    headers["Authorization"] = f"Bearer {self.api_key}"
+                conn.request("POST", path, body=payload, headers=headers)
+                res = conn.getresponse()
+                res.read()  # drain
+                if res.status >= 400:
+                    logger.warning(f"{PLUGIN_NAME}: Ollama unload failed: {res.status} {res.reason}")
+            finally:
+                if conn:
+                    conn.close()
+        except Exception as e:
+            logger.warning(f"{PLUGIN_NAME}: Ollama unload error: {e}")
+
     def _load_config(self):
         self.interactive = os.getenv('LLM_INTERACTIVE', 'true').lower().strip() in ('true', '1', 'yes', 'on')
         raw_provider = os.getenv('LLM_PROVIDER', '').lower().strip()
@@ -510,6 +552,26 @@ class SXNGPlugin(Plugin):
             raw_url = f"https://{raw_url}"
         self.endpoint_url = raw_url
         
+
+        # Ollama: optional "unload after response" behavior (plugin-specific).
+        # Enable with:
+        #   LLM_OLLAMA_UNLOAD_AFTER=1
+        # Optional override:
+        #   LLM_OLLAMA_UNLOAD_URL=http://<host>:11434/api/chat
+        self.ollama_unload_after = (
+            _env_flag('LLM_OLLAMA_UNLOAD_AFTER', False) or _env_flag('OLLAMA_UNLOAD_AFTER', False)
+        )
+        self.ollama_unload_url = (os.getenv('LLM_OLLAMA_UNLOAD_URL') or os.getenv('OLLAMA_UNLOAD_URL') or '').strip()
+        if self.provider == 'ollama' and self.ollama_unload_after and not self.ollama_unload_url:
+            try:
+                p = urlparse(self.endpoint_url)
+                scheme = p.scheme or 'http'
+                host = p.hostname or 'localhost'
+                port = p.port
+                netloc = f"{host}:{port}" if port else host
+                self.ollama_unload_url = f"{scheme}://{netloc}/api/chat"
+            except Exception:
+                self.ollama_unload_url = "http://localhost:11434/api/chat"
         if self.api_key:
             self.secret = os.getenv('SXNG_LLM_SECRET') or hashlib.sha256(self.api_key.encode()).hexdigest()
         else:
@@ -820,6 +882,25 @@ class SXNGPlugin(Plugin):
                     if conn: conn.close()
 
             generator = stream_gemini if self.is_gemini else stream_openai_compatible
+
+
+            # If configured, force-unload Ollama model right after finishing the stream.
+
+            # This uses the native /api/chat endpoint with keep_alive=0.
+
+            if self.provider == 'ollama' and getattr(self, 'ollama_unload_after', False):
+
+                gen_fn = generator
+
+                def generator():
+
+                    try:
+
+                        yield from gen_fn()
+
+                    finally:
+
+                        self._ollama_unload_model()
             return Response(generator(), mimetype='text/event-stream', headers={
                 'X-Accel-Buffering': 'no',
                 'Cache-Control': 'no-cache, no-store',

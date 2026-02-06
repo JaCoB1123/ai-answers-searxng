@@ -44,6 +44,8 @@ Configure via the environment variables:
 - `LLM_CONTEXT_SHALLOW_COUNT`: Results with headlines only (additional breadth). Default `15`.
 - `LLM_TABS`: Tab whitelist, comma delimiter. Default `general,science,it,news`.
 - `LLM_INTERACTIVE`: UI mode. Default is `true` (interactive: copy, regenerate, follow up). Set to `false` for simple response only mode.
+  * `LLM_OLLAMA_UNLOAD_AFTER`: If true, unload Ollama model immediately after each response (calls `/api/chat` with `keep_alive: 0`).
+  * `LLM_OLLAMA_UNLOAD_URL`: Override unload endpoint (default derived from `LLM_URL` host/port).
 
 ## How It Works
 1 user initial search 
