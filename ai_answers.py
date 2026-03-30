@@ -440,6 +440,7 @@ class SXNGPlugin(Plugin):
 
     def _load_config(self):
         self.interactive = os.getenv('LLM_INTERACTIVE', 'true').lower().strip() in ('true', '1', 'yes', 'on')
+        self.question_mark_required = os.getenv('LLM_QUESTION_MARK_REQUIRED', 'false').lower().strip() in ('true', '1', 'yes', 'on')
         raw_provider = os.getenv('LLM_PROVIDER', '').lower().strip()
         
         raw_url = os.getenv('LLM_URL', '').strip()
@@ -898,7 +899,10 @@ class SXNGPlugin(Plugin):
         try:
             if request and hasattr(request, 'headers') and request.headers.get('X-AI-Auxiliary'):
                 return results
-            
+
+            if self.question_mark_required and '?' not in search.search_query.query:
+                return results
+
             current_tabs = set(search.search_query.categories)
             if not current_tabs: current_tabs = {'general'}
 
