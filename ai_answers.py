@@ -900,6 +900,9 @@ class SXNGPlugin(Plugin):
             if request and hasattr(request, 'headers') and request.headers.get('X-AI-Auxiliary'):
                 return results
 
+            if request and request.form.get('format', 'html') != 'html':
+                return results
+
             if self.question_mark_required and '?' not in search.search_query.query:
                 return results
 
