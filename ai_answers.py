@@ -17,11 +17,6 @@ TOKEN_EXPIRY_SEC = 3600
 STREAM_CHUNK_SIZE = 128
 STREAM_TIMEOUT_SEC = 60
 
-def _env_flag(name: str, default: bool = False) -> bool:
-    v = os.getenv(name)
-    if v is None:
-        return default
-    return v.strip().lower() in ('1', 'true', 'yes', 'on')
 def _get_streaming_connection(url: str):
     parsed = urlparse(url)
     host = parsed.hostname
@@ -482,6 +477,7 @@ class SXNGPlugin(Plugin):
 
     def _load_config(self):
         self.interactive = os.getenv('LLM_INTERACTIVE', 'true').lower().strip() in ('true', '1', 'yes', 'on')
+        self.question_mark_required = os.getenv('LLM_QUESTION_MARK_REQUIRED', 'false').lower().strip() in ('true', '1', 'yes', 'on')
         raw_provider = os.getenv('LLM_PROVIDER', '').lower().strip()
         
         raw_url = os.getenv('LLM_URL', '').strip()
@@ -553,16 +549,11 @@ class SXNGPlugin(Plugin):
         self.endpoint_url = raw_url
         
 
-        # Ollama: optional "unload after response" behavior (plugin-specific).
-        # Enable with:
-        #   LLM_OLLAMA_UNLOAD_AFTER=1
-        # Optional override:
-        #   LLM_OLLAMA_UNLOAD_URL=http://<host>:11434/api/chat
-        self.ollama_unload_after = (
-            _env_flag('LLM_OLLAMA_UNLOAD_AFTER', False) or _env_flag('OLLAMA_UNLOAD_AFTER', False)
-        )
-        self.ollama_unload_url = (os.getenv('LLM_OLLAMA_UNLOAD_URL') or os.getenv('OLLAMA_UNLOAD_URL') or '').strip()
-        if self.provider == 'ollama' and self.ollama_unload_after and not self.ollama_unload_url:
+        # Ollama: optional "unload after response" (frees VRAM between queries).
+        # Enable with: LLM_OLLAMA_UNLOAD_AFTER=true
+        self.ollama_unload_after = os.getenv('LLM_OLLAMA_UNLOAD_AFTER', 'false').lower().strip() in ('true', '1', 'yes', 'on')
+        self.ollama_unload_url = ''
+        if self.provider == 'ollama' and self.ollama_unload_after:
             try:
                 p = urlparse(self.endpoint_url)
                 scheme = p.scheme or 'http'
@@ -979,7 +970,13 @@ class SXNGPlugin(Plugin):
         try:
             if request and hasattr(request, 'headers') and request.headers.get('X-AI-Auxiliary'):
                 return results
-            
+
+            if request and request.form.get('format', 'html') != 'html':
+                return results
+
+            if self.question_mark_required and '?' not in search.search_query.query:
+                return results
+
             current_tabs = set(search.search_query.categories)
             if not current_tabs: current_tabs = {'general'}
 
