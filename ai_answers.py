@@ -740,7 +740,7 @@ class SXNGPlugin(Plugin):
             target_words = int(self.max_tokens * 0.4)
             lang_instruction = f" Respond in {lang}." if lang not in ('all', 'auto') else ""
 
-            SYSTEM = f"You are a direct, citation-accurate search assistant. Today is {today}.{lang_instruction}"
+            SYSTEM = f"You are a direct, citation-accurate search synthesis engine and assistant. Today is {today}.{lang_instruction}"
             max_source_idx = 0
             if context_text:
                 indices = re.findall(r'\[(\d+)\]', context_text)
@@ -748,11 +748,11 @@ class SXNGPlugin(Plugin):
                     max_source_idx = max(map(int, indices))
 
             CORE_RULES = [
-                "1. Answer the question directly using ONLY the provided context.",
-                f"2. High density (80%+): Expert-briefing level.  Aim for ~{target_words} words.",
-                "2. Cite facts using [1], [2], etc. If using general knowledge, cite [*].",
-                "3. Do not use filler words, transitions, or meta-commentary.",
-                "4. Never explain your process. Just provide the facts.",
+                "Answer the question directly using ONLY the provided context.",
+                f"High density: Expert-briefing level.  Aim for ~{target_words} words.",
+                "CITATIONS: Cite format is [n] for facts from grounding sources or if using general knowledge, cite [*].",
+                "Do not use filler words, transitions, or meta-commentary.",
+                "Never explain your process. Just provide the facts.",
             ]
 
             if q == "Continue":
@@ -800,9 +800,11 @@ class SXNGPlugin(Plugin):
                     payload = json.dumps({"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": self.max_tokens, "temperature": self.temperature, "stopSequences": ["</answer>"]}})
                     conn.request("POST", path, body=payload, headers={"Content-Type": "application/json"})
                     res = conn.getresponse()
-                    
+                     
                     if res.status != 200:
-                        logger.error(f"{PLUGIN_NAME}: Gemini API {res.status}")
+                        body = res.read(2048).decode('utf-8', errors='replace')[:500]
+                        logger.error(f"{PLUGIN_NAME}: Gemini API {res.status}: {body}")
+                        yield f"\n⚠️ API error {res.status}. Check server logs.\n"
                         return
 
                     decoder = json.JSONDecoder()
@@ -857,7 +859,9 @@ class SXNGPlugin(Plugin):
                     res = conn.getresponse()
 
                     if res.status != 200:
-                        logger.error(f"{PLUGIN_NAME}: {self.provider} API {res.status}")
+                        body = res.read(2048).decode('utf-8', errors='replace')[:500]
+                        logger.error(f"{PLUGIN_NAME}: {self.provider} API {res.status}: {body}")
+                        yield f"\n⚠️ API error {res.status}. Check server logs.\n"
                         return
 
                     decoder = json.JSONDecoder()
@@ -1248,15 +1252,15 @@ class SXNGPlugin(Plugin):
                                     }}
                                 }}
 
-                                if (!started) {{
-                                    const cursor = data.querySelector('.sxng-cursor');
-                                    if (cursor) cursor.remove();
-                                    const errSpan = document.createElement('span');
-                                    errSpan.style.color = '#bf616a';
-                                    errSpan.textContent = 'No response received. Check API configuration.';
-                                    data.appendChild(errSpan);
-                                    return;
-                                }}
+      if (!started && !collectedResponse.trim()) {{
+        const cursor = data.querySelector('.sxng-cursor');
+        if (cursor) cursor.remove();
+        const errSpan = document.createElement('span');
+        errSpan.style.color = '#bf616a';
+        errSpan.textContent = 'No response received. Check API configuration and server logs.';
+        data.appendChild(errSpan);
+        return;
+      }}
 
                                 {interactive_js_complete}
 
