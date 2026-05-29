@@ -768,6 +768,14 @@ class SXNGPlugin(Plugin):
             preference_section="general",
         )
         self._load_config()
+        self._frontend_scripts = {}
+
+
+    def _purge_frontend_scripts(self) -> None:
+        now = time.time()
+        expired = [tk for tk, (created_at, _) in self._frontend_scripts.items() if now - created_at > TOKEN_EXPIRY_SEC]
+        for tk in expired:
+            self._frontend_scripts.pop(tk, None)
 
 
 
@@ -944,6 +952,28 @@ class SXNGPlugin(Plugin):
     def init(self, app):
         if not self.provider:
             return
+
+        @app.route('/ai-answers-frontend.js', methods=['GET'])
+        def ai_answers_frontend_js():
+            token = request.args.get('tk', '')
+            self._purge_frontend_scripts()
+
+            try:
+                ts, sig = token.rsplit('.', 1)
+                expected = hashlib.sha256(f"{ts}{self.secret}".encode()).hexdigest()
+                if sig != expected or (time.time() - float(ts)) > TOKEN_EXPIRY_SEC:
+                    abort(403)
+            except (ValueError, KeyError, AttributeError):
+                abort(403)
+
+            script_entry = self._frontend_scripts.get(token)
+            if not script_entry:
+                abort(404)
+
+            return Response(script_entry[1], mimetype='application/javascript', headers={
+                'Cache-Control': 'no-cache, no-store',
+                'X-Content-Type-Options': 'nosniff',
+            })
 
         @app.route('/ai-auxiliary-search', methods=['POST'])
         def ai_auxiliary_search():
@@ -1427,6 +1457,10 @@ class SXNGPlugin(Plugin):
                 .replace("__B64_CONTEXT__", js_b64_context) \
                 .replace("__JS_Q__", js_q)
 
+            self._purge_frontend_scripts()
+            self._frontend_scripts[tk] = (time.time(), js_code)
+            script_src = f"{(request.script_root if request else '').rstrip('/')}/ai-answers-frontend.js?tk={tk}"
+
             html_payload = f'''
                 <article id="sxng-stream-box" class="answer" style="display:none; margin: 1rem 0;">
                     <style>
@@ -1465,9 +1499,7 @@ class SXNGPlugin(Plugin):
                     </style>
                     <p id="sxng-stream-data" style="white-space: pre-wrap; color: var(--color-result-description); font-size: 0.95rem; margin:0;"><span class="sxng-cursor"></span></p>
                     {interactive_html}
-                    <script>
-                    {js_code}
-                    </script>
+                    <script src="{script_src}"></script>
                 </article>
             '''
             search.result_container.answers.add(results.types.Answer(answer=Markup(html_payload)))
