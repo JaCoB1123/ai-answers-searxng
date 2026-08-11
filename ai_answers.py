@@ -273,7 +273,7 @@ INTERACTIVE_JS = r'''
                                 let state = {
                                     t: conversation.turns.map(t => ({
                                         r: t.role === 'user' ? 'u' : 'a',
-                                        c: t.content.replace(/\s+/g, ' ').trim()
+                                        c: t.content.trim()
                                     })),
                                     u: urls
                                 };
@@ -382,6 +382,7 @@ INTERACTIVE_JS = r'''
                         const handleAction = async (e) => {
                             if (e) e.preventDefault();
                             const val = input.value.trim();
+                            if (!val || isStreaming) return;
                             
                             conversation.turns.push({role: 'user', content: val, ts: Date.now()});
                             updateState();
@@ -394,54 +395,51 @@ INTERACTIVE_JS = r'''
                             input.blur();
                             footer.style.display = 'none';
 
-                            if (val) {
-                                const cursor = data.querySelector('.sxng-cursor');
-                                if (cursor) cursor.remove();
-                                const userMsg = document.createElement('span');
-                                userMsg.className = 'sxng-user-msg';
-                                userMsg.textContent = val;
-                                data.appendChild(userMsg);
-                                const clr = document.createElement('div');
-                                clr.style.clear = 'both';
-                                data.appendChild(clr);
+                            const cursor = data.querySelector('.sxng-cursor');
+                            if (cursor) cursor.remove();
+                            const userMsg = document.createElement('span');
+                            userMsg.className = 'sxng-user-msg';
+                            userMsg.textContent = val;
+                            data.appendChild(userMsg);
+                            const clr = document.createElement('div');
+                            clr.style.clear = 'both';
+                            data.appendChild(clr);
 
-                                const newCursor = document.createElement('span');
-                                newCursor.className = 'sxng-cursor';
-                                data.appendChild(newCursor);
-                                
-                                const synthesized = synthesizeQuery(q_init, val);
-                                let auxContext = null;
-                                try {
-                                    const auxData = await fetch(script_root + '/ai-auxiliary-search', {
-                                        method: 'POST',
-                                        headers: {'Content-Type': 'application/json'},
-                                        body: JSON.stringify({query: synthesized, lang: lang_init, offset: urls.length, tk: tk_init})
-                                    }).then(r => r.json());
-                                    if (auxData.context) {
-                                        const originalBackground = conversation.originalContext.substring(0, 1500);
-                                        auxContext = `FRESH SOURCES (most relevant):\\n${auxData.context}\\n\\nBACKGROUND (for reference):\\n${originalBackground}`;
-                                        if (auxData.new_urls && Array.isArray(auxData.new_urls)) {
-                                            urls = urls.concat(auxData.new_urls);
-                                        }
+                            const newCursor = document.createElement('span');
+                            newCursor.className = 'sxng-cursor';
+                            data.appendChild(newCursor);
+
+                            const synthesized = synthesizeQuery(q_init, val);
+                            let auxContext = null;
+                            try {
+                                const auxResponse = await fetch(script_root + '/ai-auxiliary-search', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({query: synthesized, lang: lang_init, offset: urls.length, tk: tk_init})
+                                });
+                                if (!auxResponse.ok) {
+                                    throw new Error(`Auxiliary search returned ${auxResponse.status}`);
+                                }
+                                const auxData = await auxResponse.json();
+                                if (auxData.context) {
+                                    const originalBackground = conversation.originalContext.substring(0, 1500);
+                                    auxContext = `FRESH SOURCES (most relevant):\\n${auxData.context}\\n\\nBACKGROUND (for reference):\\n${originalBackground}`;
+                                    if (auxData.new_urls && Array.isArray(auxData.new_urls)) {
+                                        urls = urls.concat(auxData.new_urls);
                                     }
-                                } catch (err) {}
-                                
-                                await startStream(val, currentText, auxContext);
-                                updateState();
-                            } else {
-                                const cursor = data.querySelector('.sxng-cursor');
-                                if (cursor) cursor.remove();
-                                data.appendChild(document.createElement('br'));
-                                data.appendChild(document.createElement('br'));
-                                const newCursor = document.createElement('span');
-                                newCursor.className = 'sxng-cursor';
-                                data.appendChild(newCursor);
-                                await startStream("Continue", currentText);
-                                updateState();
+                                }
+                            } catch (err) {
+                                console.warn('[AI Answers] Auxiliary search unavailable; using the original context.', err);
                             }
+
+                            await startStream(val, currentText, auxContext);
+                            updateState();
                         };
 
-                        document.getElementById('sxng-action-form').addEventListener('submit', handleAction);
+                        const actionForm = document.getElementById('sxng-action-form');
+                        const actionButton = document.getElementById('btn-action');
+                        if (actionForm) actionForm.addEventListener('submit', handleAction);
+                        if (actionButton) actionButton.addEventListener('click', handleAction);
                         input.addEventListener('focus', () => {
                             setTimeout(() => {
                                 input.scrollIntoView({behavior: 'smooth', block: 'center'});
@@ -492,6 +490,14 @@ FRONTEND_JS_TEMPLATE = r"""
             answerWrap.classList.remove('sxng-collapsed');
         }
     };
+
+    const showMoreWrap = document.getElementById('sxng-show-more-wrap');
+    if (showMoreWrap) {
+        showMoreWrap.addEventListener('click', () => {
+            if (answerWrap) answerWrap.classList.remove('sxng-collapsed');
+            showMoreWrap.style.display = 'none';
+        });
+    }
     
     __CITATION_HELPER_JS__
 
@@ -1636,8 +1642,8 @@ class SXNGPlugin(Plugin):
                     </style>
                     <div id="sxng-answer-wrap" class="{collapsed_class}">
                         <p id="sxng-stream-data" style="white-space: pre-wrap; color: var(--color-result-description); font-size: 0.95rem; margin:0;"><span class="sxng-cursor"></span></p>
-                        <div class="sxng-show-more-wrap" onclick="document.getElementById('sxng-answer-wrap').classList.remove('sxng-collapsed'); this.style.display='none';">
-                            <button class="sxng-show-more-btn">Show more</button>
+                        <div class="sxng-show-more-wrap" id="sxng-show-more-wrap">
+                            <button type="button" class="sxng-show-more-btn">Show more</button>
                         </div>
                     </div>
                     {interactive_html}
