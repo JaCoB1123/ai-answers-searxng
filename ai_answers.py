@@ -1049,8 +1049,8 @@ class SXNGPlugin(Plugin):
 
             try:
                 ts, sig = token.rsplit('.', 1)
-                expected = hashlib.sha256(f"{ts}{self.secret}".encode()).hexdigest()
-                if sig != expected or (time.time() - float(ts)) > TOKEN_EXPIRY_SEC:
+                expected = hmac.new(self.secret.encode('utf-8'), ts.encode('utf-8'), hashlib.sha256).hexdigest()
+                if not hmac.compare_digest(sig, expected) or (time.time() - float(ts)) > TOKEN_EXPIRY_SEC:
                     abort(403)
             except (ValueError, KeyError, AttributeError):
                 abort(403)
