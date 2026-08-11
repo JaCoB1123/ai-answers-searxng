@@ -341,6 +341,7 @@ INTERACTIVE_JS = r'''
                                     if(wrapper) wrapper.style.display = '';
                                     if(footer && is_interactive) footer.style.display = 'flex';
                                     restored = true;
+                                    updateShowMore();
                                 }
                             } catch(e) { console.warn('Restore failed', e); }
                         }
@@ -485,7 +486,9 @@ FRONTEND_JS_TEMPLATE = r"""
 
     const updateShowMore = () => {
         if (!answerWrap || !answerWrap.classList.contains('sxng-collapsed')) return;
-        if (data.offsetHeight <= answerWrap.offsetHeight + 10) {
+        if (data.offsetHeight > answerWrap.offsetHeight) {
+            answerWrap.classList.add('sxng-is-overflowing');
+        } else {
             answerWrap.classList.remove('sxng-collapsed');
         }
     };
