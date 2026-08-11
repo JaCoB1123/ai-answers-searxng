@@ -339,9 +339,11 @@ INTERACTIVE_JS = r'''
                                     });
                                     box.style.display = 'block';
                                     if(wrapper) wrapper.style.display = '';
+                                    if (answerWrap) {
+                                        answerWrap.classList.remove('sxng-collapsed', 'sxng-is-overflowing');
+                                    }
                                     if(footer && is_interactive) footer.style.display = 'flex';
                                     restored = true;
-                                    updateShowMore();
                                 }
                             } catch(e) { console.warn('Restore failed', e); }
                         }
@@ -1627,7 +1629,7 @@ class SXNGPlugin(Plugin):
                             }}
                         }}
                         #sxng-answer-wrap {{ position: relative; }}
-                        #sxng-answer-wrap.sxng-collapsed {{ height: 14rem; overflow: hidden; }}
+                        #sxng-answer-wrap.sxng-collapsed {{ height: 12rem; overflow: hidden; }}
                         .sxng-show-more-wrap {{
                             display: none; position: absolute; bottom: 0; left: 0; right: 0; height: 4rem;
                             background: linear-gradient(to bottom, transparent, var(--color-base-background, #fff));
